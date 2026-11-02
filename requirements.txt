@@ -1,0 +1,2 @@
+# Only needed for the iPhone step. The rest of the app uses the Python standard library.
+pymobiledevice3>=4.0

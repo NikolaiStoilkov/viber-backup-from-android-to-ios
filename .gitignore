@@ -1,0 +1,10 @@
+.venv/
+__pycache__/
+*.pyc
+.DS_Store
+android-helper/.gradle/
+android-helper/build/
+android-helper/app/build/
+android-helper/local.properties
+android-helper/.idea/
+*.iml
