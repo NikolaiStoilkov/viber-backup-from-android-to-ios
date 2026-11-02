@@ -1,6 +1,6 @@
 # Viber Transfer
 
-A small Mac app that backs up Viber from your own Samsung/Android phone over USB, verifies the
+A native Mac app (SwiftUI) that backs up Viber from your own Samsung/Android phone over USB, verifies the
 copy, converts the chats into readable files and copies them to your iPhone.
 
 **Read this first:** the app can back up everything Viber stores on a **rooted** Android phone,
@@ -50,13 +50,16 @@ stops and explains why. Current Viber versions opt out of backup, so in practice
 
 ## Design choices
 
-- **Python with a local web UI, not Swift/SwiftUI.** This was a deliberate change from the
-  suggested Swift app. The iPhone side needs pymobiledevice3, which is a Python library, so a Swift
-  app would still have to bundle and drive Python. Staying in Python means one language, only the
-  standard library apart from that (`http.server`, `sqlite3`, `subprocess`), no Xcode project, and
-  everything can be unit-tested without devices. The UI is a single page served on `127.0.0.1`
-  only. Requests need a random per-launch token and a localhost `Host` header, so other websites
-  can't drive the app.
+- **SwiftUI window, Python engine.** The window is a native SwiftUI app (`mac-app/`): device cards,
+  Start/Cancel, prompts, steps, summary, log, and a standard Settings window (⌘,). The work is done
+  by the Python package `vibertransfer/`, which the app runs as a child process (the "engine").
+  The engine stays in Python because the iPhone side needs pymobiledevice3, a Python library, and
+  because that code is unit-tested without devices. The two talk with one JSON object per line
+  over the engine's stdin/stdout (see `vibertransfer/engine.py`). There is no network socket, and
+  when the app quits or crashes, the engine sees its input close, cancels any running transfer and
+  cleans up. The packaged app carries its own Python, so nothing needs to be installed except adb
+  and libimobiledevice. The app is built with SwiftPM and the Command Line Tools; no Xcode project
+  is needed.
 - **pymobiledevice3 instead of ifuse.** `ifuse` needs macFUSE, a kernel extension that is painful
   to install on Apple Silicon. pymobiledevice3 talks to the same `house_arrest`/AFC services
   directly. libimobiledevice (`idevice_id`, `ideviceinfo`, `idevicepair`) is still used for
@@ -70,13 +73,23 @@ stops and explains why. Current Viber versions opt out of backup, so in practice
 ## Project layout
 
 ```
-run.sh                 start the app (./run.sh --setup installs pymobiledevice3 into .venv)
+run.sh                 build the native app and run it against this checkout (--setup, --check)
 build-apk.sh           build the Android helper APK
+build-dmg.sh           build "Viber Transfer.app" and dist/ViberTransfer-<version>-<arch>.dmg
 requirements.txt       pymobiledevice3 (only needed for the iPhone step)
+requirements-build.txt PyInstaller + Pillow (only needed to build the .dmg)
+mac-app/               the native app (SwiftPM package)
+  build-app.sh         assembles "Viber Transfer.app" (Swift binary, Info.plist, icon, bundled engine, signature)
+  Sources/ViberTransfer/
+    ViberTransferApp.swift   app entry, window + Settings scenes, quit handling
+    ContentView.swift        the main window
+    SettingsView.swift       the Settings window
+    Model.swift              decoded engine data + the observable state the views show
+    Engine.swift             starts the engine and speaks its JSON-lines protocol
+packaging/             PyInstaller spec for the engine, launcher, icon drawing, entitlements, DMG read-me
 vibertransfer/
-  __main__.py          CLI: start UI, `verify <folder>`, `convert <folder>`
-  server.py            local HTTP server + JSON API
-  ui.html              the single window (device panels, Start/Cancel, prompts, progress, log, summary)
+  __main__.py          CLI: `engine`, `verify <folder>`, `convert <folder>`, `selftest`
+  engine.py            the backend the app talks to (JSON over stdin/stdout)
   job.py               runs the steps in order; cancel + cleanup
   tools.py             find adb/libimobiledevice, install hints, settings, cancellable subprocess runner
   android.py           adb wrapper, output parsers, adb-backup (.ab) extraction
@@ -85,7 +98,7 @@ vibertransfer/
   ios.py               iPhone detection and the copy to an app's Documents folder
 android-helper/        Kotlin helper app (one screen + one foreground service, no dependencies)
   app/src/main/res/raw/copy.sh   the root copy script
-tests/                 unit tests + a fake adb for an end-to-end job test
+tests/                 unit tests, a fake adb, end-to-end job and engine-protocol tests
 ```
 
 External tools: `adb` (Android platform-tools), `idevice_id` / `ideviceinfo` / `idevicepair`
@@ -109,7 +122,8 @@ brew install libimobiledevice
 ```
 
 `./run.sh --setup` creates `.venv/` and installs pymobiledevice3. Python 3.9 or newer is enough;
-the one that ships with macOS works. `./run.sh --check` lists what's installed.
+the one that ships with macOS works. Building the app needs the Xcode Command Line Tools
+(`xcode-select --install`) for `swift`. `./run.sh --check` lists what's installed.
 
 To build the helper APK:
 
@@ -151,7 +165,69 @@ sdkmanager "platforms;android-35" "build-tools;35.0.0"
    **Files**. Many file manager and document reader apps qualify. The app lists every eligible app
    and lets you choose one; Viber itself is never offered.
 
-## Build and run
+## Install from the .dmg
+
+There are two disk images, one per architecture, because several pymobiledevice3 dependencies
+ship single-architecture binaries:
+
+- `ViberTransfer-<version>-arm64.dmg` for Apple Silicon (M1 and later)
+- `ViberTransfer-<version>-x86_64.dmg` for Intel Macs
+
+1. Open the .dmg and drag **Viber Transfer** onto **Applications**.
+2. The first time, macOS blocks it because the build isn't notarized. Double-click it, click
+   *Done*, then go to **System Settings › Privacy & Security** and click **Open Anyway**. You
+   only need to do this once.
+3. Install the device tools once, in Terminal:
+
+   ```bash
+   brew install --cask android-platform-tools
+   ```
+
+   ```bash
+   brew install libimobiledevice
+   ```
+
+   Python and pymobiledevice3 are already inside the app.
+4. Open **Viber Transfer**, connect both phones, check that both cards say *Connected*, and click
+   **Start Transfer**. Settings are under **Viber Transfer › Settings…** (⌘,). If you quit
+   during a transfer, the app asks first, then cancels the transfer and cleans up before closing.
+   The engine's log is written to `~/Library/Logs/ViberTransfer/engine.log`.
+
+### Building the .dmg
+
+```bash
+./build-apk.sh
+```
+
+```bash
+./build-dmg.sh
+```
+
+`./build-dmg.sh` builds for this Mac's architecture. Pass `--arch x86_64` or `--arch arm64` to
+build for the other one; on Apple Silicon the Intel build runs under Rosetta
+(`softwareupdate --install-rosetta`). The script:
+
+- creates a separate build venv per architecture under `build/`
+- runs the unit tests
+- draws the icon
+- bundles the helper APK if `./build-apk.sh` has produced it (otherwise it warns, and the app can
+  only use the no-root fallback)
+- builds the engine with PyInstaller (Python, pymobiledevice3, helper APK)
+- builds the SwiftUI app for the same architecture and puts the engine in
+  `Contents/Resources/engine`
+- runs the engine's `selftest` on the result and checks the signature
+- creates `dist/ViberTransfer-<version>-<arch>.dmg` with an Applications shortcut
+
+Without a signing identity the app gets an ad-hoc signature, which is fine on your own Mac. To
+hand the .dmg to other people without Gatekeeper warnings, you need an Apple Developer ID:
+
+```bash
+CODESIGN_IDENTITY="Developer ID Application: Your Name (TEAMID)" NOTARY_PROFILE=myprofile ./build-dmg.sh
+```
+
+(`NOTARY_PROFILE` is a keychain profile created once with `xcrun notarytool store-credentials`.)
+
+## Build and run from source
 
 ```bash
 ./build-apk.sh
@@ -161,10 +237,13 @@ sdkmanager "platforms;android-35" "build-tools;35.0.0"
 ./run.sh
 ```
 
-`./run.sh` opens `http://127.0.0.1:8765` in your browser. Check that both device panels say
-*Connected* and press **Start Transfer**. Optional settings (adb path, phone serial when several
-are connected, helper APK path, target iPhone app, skip iPhone step) are under **Settings & tools**
-and saved in `~/Library/Application Support/ViberTransfer/settings.json`.
+`./run.sh` builds the native app into `build/dev/` and starts it. In this development build the
+app's engine is `.venv/bin/python -m vibertransfer engine` from this checkout, so Python changes
+take effect on the next launch without packaging. Check that both device cards say *Connected*
+and click **Start Transfer**. Optional settings (adb path, phone serial when several are
+connected, helper APK path, target iPhone app, skip iPhone step, and the status of each external
+tool) are in the Settings window (⌘,) and saved in
+`~/Library/Application Support/ViberTransfer/settings.json`.
 
 Other commands:
 

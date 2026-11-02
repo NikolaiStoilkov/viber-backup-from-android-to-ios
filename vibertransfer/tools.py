@@ -9,6 +9,7 @@ import json
 import os
 import shutil
 import subprocess
+import sys
 import threading
 from pathlib import Path
 
@@ -16,7 +17,12 @@ APP_SUPPORT = Path.home() / "Library" / "Application Support" / "ViberTransfer"
 SETTINGS_FILE = APP_SUPPORT / "settings.json"
 BACKUPS_ROOT = Path.home() / "Documents" / "ViberTransfer" / "backups"
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
-DEFAULT_APK = PROJECT_ROOT / "android-helper" / "app" / "build" / "outputs" / "apk" / "debug" / "app-debug.apk"
+# FROZEN: running from the packaged "Viber Transfer.app" (PyInstaller); bundled files live in sys._MEIPASS.
+FROZEN = bool(getattr(sys, "frozen", False))
+if FROZEN:
+    DEFAULT_APK = Path(getattr(sys, "_MEIPASS")) / "helper" / "viber-transfer-helper.apk"
+else:
+    DEFAULT_APK = PROJECT_ROOT / "android-helper" / "app" / "build" / "outputs" / "apk" / "debug" / "app-debug.apk"
 
 # Where to look besides $PATH. The Mac app is often started from Finder/launchd
 # with a minimal PATH, so Homebrew and the Android SDK are listed explicitly.

@@ -1,6 +1,6 @@
 """The transfer job: runs every step in order on a background thread.
 
-The web UI polls `TransferJob.snapshot()` for progress, the log, plain-language
+The Mac app (through engine.py) polls `TransferJob.snapshot()` for progress, the log, plain-language
 prompts ("Tap Allow on the phone") and choices it must answer.
 """
 from __future__ import annotations

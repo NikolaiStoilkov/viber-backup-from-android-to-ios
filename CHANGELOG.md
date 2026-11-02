@@ -4,8 +4,10 @@
 
 First version.
 
-- Mac app (Python, local web UI on 127.0.0.1) with Android and iPhone status panels, Start/Cancel,
-  step list, progress bar, plain-language prompts, log and end-of-run summary.
+- Native Mac app (SwiftUI, macOS 13+) with Android and iPhone status cards, Start/Cancel, step
+  list, progress bar, plain-language prompts, a sheet for choices, log, end-of-run summary and a
+  standard Settings window. It drives a Python engine (`vibertransfer engine`) over stdin/stdout
+  JSON lines, with no network socket; quitting cancels a running transfer and cleans up first.
 - Android helper APK (Kotlin, no dependencies): asks for root via Magisk/SuperSU, copies Viber's
   app data and media folders to a private staging folder, writes SHA-256 checksums, and reports
   progress via `status.json`/logcat.
@@ -19,5 +21,11 @@ First version.
   `python3 -m vibertransfer verify` / `convert` commands.
 - iPhone step: copies the readable export into the Documents folder of a chosen File Sharing app
   via pymobiledevice3 and checks file sizes on the phone. Viber's own container is never a target.
+- macOS installer: `./build-dmg.sh [--arch arm64|x86_64]` builds a self-contained
+  "Viber Transfer.app" (the SwiftUI app plus a PyInstaller-built engine with Python,
+  pymobiledevice3 and the helper APK inside) and
+  packs it into `dist/ViberTransfer-<version>-<arch>.dmg`. The engine logs to
+  `~/Library/Logs/ViberTransfer/engine.log` and has a `selftest` command that the build runs on
+  every app it produces. Optional Developer ID signing and notarization.
 - Unit tests for manifests, checksums, conversion, parsers, `.ab` extraction, and an end-to-end
-  job test against a fake adb.
+  job test against a fake adb, and engine-protocol tests.

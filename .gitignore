@@ -8,3 +8,5 @@ android-helper/app/build/
 android-helper/local.properties
 android-helper/.idea/
 *.iml
+build/
+dist/
